@@ -945,6 +945,7 @@
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 
     <!-- Firebase Status Indicator -->
     <div class="firebase-status">
@@ -1087,19 +1088,28 @@
     </div>
 
     <!-- Admin Login Modal -->
-    <div id="adminLoginModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Admin Access</h3>
-                <button class="close-btn" onclick="closeModal('adminLoginModal')">&times;</button>
-            </div>
-            <div class="form-group">
-                <label>Access Code</label>
-                <input type="password" id="adminPassword" placeholder="Enter authorization code...">
-            </div>
-            <button class="btn" onclick="adminLogin()">Authenticate</button>
+<div id="adminLoginModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Admin Access</h3>
+            <button class="close-btn" onclick="closeModal('adminLoginModal')">&times;</button>
         </div>
+        <div id="loginMessage" style="padding: 1rem; margin-bottom: 1rem; border-radius: 8px; display: none;"></div>
+        <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="adminEmail" placeholder="admin@example.com" autocomplete="email">
+        </div>
+        <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="adminPassword" placeholder="Enter password..." autocomplete="current-password">
+        </div>
+        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem;">
+            <input type="checkbox" id="rememberMe" style="width: auto;">
+            <label for="rememberMe" style="margin: 0; text-transform: none;">Remember me</label>
+        </div>
+        <button class="btn" onclick="adminLogin()" id="loginBtn">Sign In</button>
     </div>
+</div>
 
     <!-- Add Division Modal -->
     <div id="addDivisionModal" class="modal">
@@ -1222,10 +1232,6 @@
   measurementId: "G-RF9YJCW48S"
 };
 
-        // ========================================
-        // ADMIN PASSWORD
-        // ========================================
-        const ADMIN_PASSWORD = 'agent24856';
 
         // ========================================
         // FIREBASE INITIALIZATION
@@ -1393,23 +1399,145 @@
             document.getElementById(modalId).classList.remove('active');
         }
 
-        // Admin login
-        function adminLogin() {
-            const password = document.getElementById('adminPassword').value;
-            if (password === ADMIN_PASSWORD) {
-                isAdmin = true;
-                document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'block');
-                closeModal('adminLoginModal');
-                document.getElementById('adminBtn').textContent = 'Logout';
-                document.getElementById('adminBtn').classList.add('logged-in');
-                document.getElementById('adminPassword').value = '';
-                alert('Access granted!');
-            } else {
-                alert('Invalid access code!');
-                document.getElementById('adminPassword').value = '';
-            }
-        }
+        // ========================================
+// FIREBASE AUTHENTICATION
+// ========================================
 
+let currentUser = null;
+
+// Check authentication state on load
+firebase.auth().onAuthStateChanged((user) => {
+    if (user) {
+        currentUser = user;
+        isAdmin = true;
+        updateAdminUI(true);
+        console.log('✓ User authenticated:', user.email);
+    } else {
+        currentUser = null;
+        isAdmin = false;
+        updateAdminUI(false);
+        console.log('✗ No user authenticated');
+    }
+});
+
+// Update UI based on admin status
+function updateAdminUI(loggedIn) {
+    const adminElements = document.querySelectorAll('.admin-only');
+    const adminBtn = document.getElementById('adminBtn');
+    
+    if (loggedIn) {
+        adminElements.forEach(el => el.style.display = 'block');
+        adminBtn.textContent = 'Logout';
+        adminBtn.classList.add('logged-in');
+    } else {
+        adminElements.forEach(el => el.style.display = 'none');
+        adminBtn.textContent = 'Admin Login';
+        adminBtn.classList.remove('logged-in');
+    }
+}
+
+// Show login message
+function showLoginMessage(message, isError = false) {
+    const messageDiv = document.getElementById('loginMessage');
+    messageDiv.textContent = message;
+    messageDiv.style.display = 'block';
+    messageDiv.style.background = isError ? 'linear-gradient(135deg, #dc2626, #991b1b)' : 'linear-gradient(135deg, #22c55e, #16a34a)';
+    messageDiv.style.color = 'white';
+    
+    setTimeout(() => {
+        messageDiv.style.display = 'none';
+    }, 5000);
+}
+
+// Admin login with Firebase Auth
+async function adminLogin() {
+    const email = document.getElementById('adminEmail').value.trim();
+    const password = document.getElementById('adminPassword').value;
+    const rememberMe = document.getElementById('rememberMe').checked;
+    const loginBtn = document.getElementById('loginBtn');
+    
+    if (!email || !password) {
+        showLoginMessage('Please enter email and password', true);
+        return;
+    }
+    
+    // Disable button during login
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Signing in...';
+    
+    try {
+        // Set persistence based on "remember me"
+        const persistence = rememberMe ? 
+            firebase.auth.Auth.Persistence.LOCAL : 
+            firebase.auth.Auth.Persistence.SESSION;
+        
+        await firebase.auth().setPersistence(persistence);
+        
+        // Sign in
+        await firebase.auth().signInWithEmailAndPassword(email, password);
+        
+        // Success!
+        showLoginMessage('Login successful!');
+        closeModal('adminLoginModal');
+        
+        // Clear form
+        document.getElementById('adminEmail').value = '';
+        document.getElementById('adminPassword').value = '';
+        
+    } catch (error) {
+        console.error('Login error:', error);
+        
+        // Show user-friendly error messages
+        let errorMessage = 'Login failed. ';
+        switch (error.code) {
+            case 'auth/invalid-email':
+                errorMessage += 'Invalid email address.';
+                break;
+            case 'auth/user-disabled':
+                errorMessage += 'This account has been disabled.';
+                break;
+            case 'auth/user-not-found':
+                errorMessage += 'No account found with this email.';
+                break;
+            case 'auth/wrong-password':
+                errorMessage += 'Incorrect password.';
+                break;
+            case 'auth/too-many-requests':
+                errorMessage += 'Too many failed attempts. Try again later.';
+                break;
+            default:
+                errorMessage += error.message;
+        }
+        
+        showLoginMessage(errorMessage, true);
+    } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Sign In';
+    }
+}
+
+// Admin logout
+async function adminLogout() {
+    try {
+        await firebase.auth().signOut();
+        showLoginMessage('Logged out successfully');
+        console.log('✓ User logged out');
+    } catch (error) {
+        console.error('Logout error:', error);
+        alert('Error logging out: ' + error.message);
+    }
+}
+
+// Modal functions
+function showAdminLogin() {
+    if (isAdmin) {
+        // Logout
+        adminLogout();
+    } else {
+        // Show login modal
+        document.getElementById('adminLoginModal').classList.add('active');
+    }
+}
         // ========================================
         // DIVISIONS MANAGEMENT
         // ========================================
